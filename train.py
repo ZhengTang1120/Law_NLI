@@ -15,24 +15,10 @@ random.seed(1234)
 model_name = "bert-base-uncased"
 config = BertConfig.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-# model = CustomModel(config, 3)
 
 bert = BertForSequenceClassification.from_pretrained(model_name, num_labels=3).bert
 model = CustomModel(config, model_name, 3)
 
-# d1 = {}
-# for name, param in bert.named_parameters():
-#     if param.requires_grad:
-#         d1[name] = param.data
-
-# d2 = {}
-# for name, param in model.bert.named_parameters():
-#     if param.requires_grad:
-#         d2[name] = param.data
-
-# for key in d1:
-#     print (key, torch.equal(d1[key], d2[key]))
-# exit()
 ## loading dataset 
 data_files = {"train": "train.csv", "dev": "dev.csv", "test": "test.csv"}
 dataset = load_dataset("Tennessee/main/original", data_files=data_files)
