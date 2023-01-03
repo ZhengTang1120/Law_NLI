@@ -1,33 +1,75 @@
-from transformers import AutoConfig, AutoModel, Trainer, PreTrainedModel
+from transformers import BertConfig, AutoModel, Trainer, PreTrainedModel,BertForSequenceClassification
 import torch.nn as nn
 from transformers.modeling_outputs import SequenceClassifierOutput
 import torch
 
 class CustomModel(PreTrainedModel):
-     def __init__(self, config, num_labels):
+     def __init__(self, config, name, num_labels):
         super().__init__(config)
-        self.name = config.name_or_path
-        self.encoder = AutoModel.from_config(config)
-        self.attn = nn.MultiheadAttention(config.hidden_size, 1)
+        self.name = name
+        self.num_labels = num_labels
+        self.config = config
+        self.bert = AutoModel.from_pretrained(self.name)
+        # self.attn = nn.MultiheadAttention(config.hidden_size, 1)
         self.classifier = nn.Linear(config.hidden_size, num_labels)
-        if 'roberta' in self.name:
-          self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        # if 'roberta' in self.name:
+        #   self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.num_labels = num_labels
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.loss_fn = nn.CrossEntropyLoss()
 
-     def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, labels=None, task_ids=None, return_dict=False, **kwargs):
+        # self.post_init()
 
-          outputs = self.encoder(
-               input_ids,
-               attention_mask=attention_mask,
-               token_type_ids=token_type_ids,
-               **kwargs,
-          )
 
-          seq_out = outputs[0].transpose(0, 1)
-          outs, attns = self.attn(seq_out, seq_out, seq_out)
-          output = outs[0]
+     def _init_weights(self, module):
+        """Initialize the weights"""
+        if isinstance(module, nn.Linear):
+            # Slightly different from the TF version which uses truncated_normal for initialization
+            # cf https://github.com/pytorch/pytorch/pull/5617
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+
+     def _set_gradient_checkpointing(self, module, value=False):
+        if isinstance(module, BertEncoder):
+            module.gradient_checkpointing = value
+
+     def forward(
+        self,
+        input_ids = None,
+        attention_mask = None,
+        token_type_ids = None,
+        position_ids = None,
+        head_mask = None,
+        inputs_embeds = None,
+        labels = None,
+        output_attentions = None,
+        output_hidden_states = None,
+        return_dict = None,
+    ):
+
+          outputs = self.bert(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+          output = outputs[1]
+          # seq_out = outputs[0].transpose(0, 1)
+          # outs, attns = self.attn(seq_out, seq_out, seq_out)
+          # output = outs[0]
           # if 'bert' in self.name:
           #      output = outputs[1]
           # elif 'roberta' in self.name:
@@ -43,17 +85,23 @@ class CustomModel(PreTrainedModel):
           
           loss = None
           if labels is not None:
-               loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
+               loss_fn = nn.CrossEntropyLoss()
+               loss = loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
 
           if not return_dict:
-               output = (logits.view(-1, self.num_labels),)
-               return ((loss,) + output) if loss is not None else output
-
+            output = (logits,) + outputs[2:]
+            return ((loss,) + output) if loss is not None else output
+          # return SequenceClassifierOutput(
+          #      loss=loss,
+          #      logits=logits,
+          #      attentions=attns,
+          # )
           return SequenceClassifierOutput(
-               loss=loss,
-               logits=logits,
-               attentions=attns,
-          )
+            loss=loss,
+            logits=logits,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
 
 class CustomTrainer(Trainer):
      def compute_loss(self, model, inputs, return_outputs=False):
@@ -97,6 +145,6 @@ class CustomTrainer(Trainer):
                loss = outputs.get("loss").mean()
           else:
                loss = outputs[0].mean()
-          beta = 0.1/(10 ** len(str((attn_reg // loss).item()).split('.')[0]))
+          beta = 1#1/(10 ** len(str((attn_reg // loss).item()).split('.')[0]))
           loss += beta * attn_reg
           return (loss, outputs) if return_outputs else loss

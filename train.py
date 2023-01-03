@@ -1,4 +1,4 @@
-from transformers import AutoTokenizer, DataCollatorWithPadding, TrainingArguments
+from transformers import AutoTokenizer, DataCollatorWithPadding, TrainingArguments, BertForSequenceClassification
 from trainer import *
 
 from datasets import load_dataset, ClassLabel, load_metric
@@ -6,11 +6,33 @@ from datasets import load_dataset, ClassLabel, load_metric
 import torch
 import numpy as np
 
-model_name = "bert-base-uncased"
-config = AutoConfig.from_pretrained(model_name)
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = CustomModel(config, 3)
+import random
 
+torch.manual_seed(1234)
+np.random.seed(1234)
+random.seed(1234)
+
+model_name = "bert-base-uncased"
+config = BertConfig.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+# model = CustomModel(config, 3)
+
+bert = BertForSequenceClassification.from_pretrained(model_name, num_labels=3).bert
+model = CustomModel(config, model_name, 3)
+
+# d1 = {}
+# for name, param in bert.named_parameters():
+#     if param.requires_grad:
+#         d1[name] = param.data
+
+# d2 = {}
+# for name, param in model.bert.named_parameters():
+#     if param.requires_grad:
+#         d2[name] = param.data
+
+# for key in d1:
+#     print (key, torch.equal(d1[key], d2[key]))
+# exit()
 ## loading dataset 
 data_files = {"train": "train.csv", "dev": "dev.csv", "test": "test.csv"}
 dataset = load_dataset("Tennessee/main/original", data_files=data_files)
@@ -26,7 +48,7 @@ def tokenize(examples):
 special_tok = ["[STATE]", "[LAW]", "[COND]", "[Person-1]", "[Person-2]", "[Person-3]", "[Person-4]", "[Person-5]", "[Person-6]", "[Person-7]", "[Person-8]", "[Person-9]", "[Person-10]", "[Person-11]", "[Person-12]", "[Person-13]", "[Person-14]", "[Person-15]", "[Person-16]", "[Person-17]", "[Person-18]", "[Person-19]", "[Person-20]", "[Address-1]", "[Address-2]", "[Organization-1]", "[Organization-2]", "[Organization-3]", "[Location-1]", "[Last name]", "[Number-1]", "[NO COND]"]
 tokenizer.add_special_tokens({'additional_special_tokens': special_tok})
 tokenized_datasets = dataset.map(tokenize, batched = True)
-model.encoder.resize_token_embeddings(len(tokenizer))
+model.bert.resize_token_embeddings(len(tokenizer))
 # reformat tokenized dataset (i.e., remove/rename certain columns)
 tokenized_datasets = tokenized_datasets.remove_columns(['ID', 'text'])
 tokenized_datasets = tokenized_datasets.rename_column('label', 'labels')
@@ -62,7 +84,7 @@ training_args = TrainingArguments(
     save_steps=630
 )
 
-trainer = CustomTrainer(
+trainer = Trainer(
      model=model,
      args=training_args,
      train_dataset=tokenized_datasets['train'],
